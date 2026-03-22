@@ -464,7 +464,7 @@ export default function NewTaskPage() {
 
               {/* Subtasks / Checklist */}
               <div className="pt-4 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 md:gap-0 md:flex-row items-start md:items-center justify-between">
                   <label className="flex items-center text-sm font-bold uppercase tracking-wider text-foreground">
                     <CheckSquare className="w-4 h-4 mr-2 text-primary" /> Subtasks & Advanced Checklists
                   </label>
