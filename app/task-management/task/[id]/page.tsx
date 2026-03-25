@@ -9,9 +9,10 @@ import {
   CheckSquare, Flag, Clock, History, Loader2, Plus, 
   MessageSquare, Settings, CheckCircle2, Circle, AlertCircle,
   FileText, Image as ImageIcon, Download, Mic, Trash2, Pencil,
-  UserPlus, UserMinus, ArrowRightLeft, List, PlusCircle, Folder, IndianRupee
+  UserPlus, UserMinus, ArrowRightLeft, List, PlusCircle, Folder, IndianRupee 
 } from "lucide-react";
 import TaskPayments from "@/components/TaskPayments";
+import { useUserStore } from "@/stores/useUserStore";
 
 export default function TaskOverviewPage() {
   const params = useParams();
@@ -453,12 +454,20 @@ export default function TaskOverviewPage() {
         </button>
         
         <div className="flex items-center gap-3">
-          {currentUser?.id === task.created_by && (
+          {(currentUser?.id === task.created_by || useUserStore.getState().isSuperAdmin) && (
             <>
-              <button onClick={() => router.push(`/task-management/edit-task/${id}`)} className="p-2 text-foreground/60 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors border border-transparent hover:border-primary/20">
+              <button 
+                onClick={() => router.push(`/task-management/edit-task/${id}`)} 
+                className="p-2 text-foreground/60 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors border border-transparent hover:border-primary/20"
+                title="Edit Task"
+              >
                 <Pencil className="w-4 h-4" />
               </button>
-              <button onClick={() => setShowDeleteConfirm(true)} className="p-2 text-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors border border-transparent hover:border-red-500/20">
+              <button 
+                onClick={() => setShowDeleteConfirm(true)} 
+                className="p-2 text-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors border border-transparent hover:border-red-500/20"
+                title="Delete Task"
+              >
                 <Trash2 className="w-4 h-4" />
               </button>
             </>
@@ -857,7 +866,7 @@ export default function TaskOverviewPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-card-bg border border-card-border rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-red-500/10 relative z-10">
             <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
               <AlertCircle className="w-6 h-6 text-red-500" />

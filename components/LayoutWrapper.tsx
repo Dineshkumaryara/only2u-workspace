@@ -15,7 +15,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
 
   return (
     <div 
-        className={`flex-1 flex flex-col min-h-screen transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isCollapsed ? 'lg:pl-[88px]' : 'lg:pl-72'}`}
+        className={`flex-1 min-w-0 overflow-x-hidden flex flex-col min-h-screen transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isCollapsed ? 'lg:pl-[88px]' : 'lg:pl-72'}`}
     >
       {children}
     </div>

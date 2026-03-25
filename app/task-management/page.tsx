@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
+import { useCompanyStore } from "@/stores/useCompanyStore";
+import { GLOBAL_COMPANY_ID } from "@/stores/useProjectStore";
 import {
   Plus,
   Clock,
@@ -23,6 +25,7 @@ import { TaskCard } from "@/components/TaskCard";
 export default function TaskManagementDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const { activeCompany } = useCompanyStore();
 
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -66,7 +69,31 @@ export default function TaskManagementDashboard() {
         }
         setCurrentUser(user);
 
-        // 1. Get task IDs assigned to the current user
+        if (!activeCompany) {
+          setTasks([]);
+          setLoading(false);
+          return;
+        }
+
+        const isGlobal = activeCompany.id === GLOBAL_COMPANY_ID;
+
+        // 1. Get projects in this company
+        let projectsQuery = supabase.from("projects").select("id");
+        if (isGlobal) {
+          projectsQuery = projectsQuery.or(`company_id.eq.${GLOBAL_COMPANY_ID},company_id.is.null`);
+        } else {
+          projectsQuery = projectsQuery.eq("company_id", activeCompany.id);
+        }
+        const { data: prData } = await projectsQuery;
+        const validProjectIds = prData?.map(p => p.id) || [];
+
+        if (validProjectIds.length === 0) {
+          setTasks([]);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Get task IDs assigned to the current user
         const { data: assignments } = await supabase
           .from("task_assignments")
           .select("task_id")
@@ -75,17 +102,20 @@ export default function TaskManagementDashboard() {
         const assignedIds = assignments?.map((a) => a.task_id) || [];
         setAssignedTaskIds(assignedIds);
 
-        // 2. Fetch all tasks where user is assigned OR user created it
+        // 3. Fetch all tasks where user is assigned OR user created it, scoped to projects
+        let taskQuery = supabase
+          .from("tasks")
+          .select("*, task_attachments(*), task_assignments(agent:agents(*))")
+          .in('project_id', validProjectIds);
+
         const orConditions = [`created_by.eq.${user.id}`];
         if (assignedIds.length > 0) {
           orConditions.push(`id.in.(${assignedIds.join(",")})`);
         }
+        
+        taskQuery = taskQuery.or(orConditions.join(","));
 
-        const { data: allTasks, error: tasksError } = await supabase
-          .from("tasks")
-          .select("*, task_attachments(*), task_assignments(agent:agents(*))")
-          .or(orConditions.join(","))
-          .order("created_at", { ascending: false });
+        const { data: allTasks, error: tasksError } = await taskQuery.order("created_at", { ascending: false });
 
         if (tasksError) throw tasksError;
         setTasks(allTasks || []);
@@ -97,7 +127,7 @@ export default function TaskManagementDashboard() {
     };
 
     fetchDashboardData();
-  }, [router, supabase]);
+  }, [router, supabase, activeCompany]);
 
   // Derived state
   const displayedTasks = tasks.filter((task) => {
@@ -269,7 +299,7 @@ export default function TaskManagementDashboard() {
       {/* Tasks Display — flex-1 relative so children can use absolute inset-0 */}
       {displayedTasks.length === 0 ? (
         <div className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col items-center justify-center p-20 text-center glass-card rounded-3xl border border-dashed border-input-border w-full max-w-2xl">
+          <div className="flex flex-col items-center justify-center p-20 text-center w-full max-w-2xl">
             <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-6">
               <CheckSquare className="w-10 h-10 text-primary" />
             </div>

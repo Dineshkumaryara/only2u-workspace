@@ -54,8 +54,9 @@ export default function NotificationDropdown({ userId }: NotificationDropdownPro
     switch (type) {
       case 'task_assigned': return <Circle className="w-2 h-2 text-blue-500 fill-blue-500" />;
       case 'task_completed': return <Circle className="w-2 h-2 text-green-500 fill-green-500" />;
+      case 'project_added': return <Circle className="w-2 h-2 text-primary fill-primary shadow-[0_0_8px_rgba(var(--primary-rgb),0.5)]" />;
       case 'payment_request': return <Circle className="w-2 h-2 text-amber-500 fill-amber-500" />;
-      default: return <Circle className="w-2 h-2 text-primary fill-primary" />;
+      default: return <Circle className="w-2 h-2 text-foreground/20 fill-foreground/20" />;
     }
   };
 
@@ -135,7 +136,7 @@ export default function NotificationDropdown({ userId }: NotificationDropdownPro
                         
                         {n.reference_id && (
                            <Link 
-                            href={`/task-management/task/${n.reference_id}`}
+                            href={n.type === 'project_added' ? `/task-management/projects/${n.reference_id}` : `/task-management/task/${n.reference_id}`}
                             className="inline-flex items-center text-[10px] font-extrabold text-primary hover:underline group/link"
                            >
                              View Details <ChevronRight size={10} className="ml-0.5 group-hover/link:translate-x-0.5 transition-transform" />

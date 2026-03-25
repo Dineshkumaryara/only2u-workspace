@@ -8,6 +8,9 @@ import {
   ArrowLeft, Paperclip, Mic, Square, Trash2, Bell, Repeat, Tag as TagIcon,
   Image as ImageIcon, CheckSquare, X, ChevronDown, ChevronRight
 } from "lucide-react";
+import { useUserStore } from "@/stores/useUserStore";
+import { useCompanyStore } from "@/stores/useCompanyStore";
+import { GLOBAL_COMPANY_ID } from "@/stores/useProjectStore";
 
 type Attachment = { file: File; type: string; previewUrl: string; mimeType: string };
 
@@ -28,6 +31,7 @@ type Subtask = {
 export default function NewTaskPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { activeCompany } = useCompanyStore();
 
   const [loading, setLoading] = useState(false);
   const [fetchingData, setFetchingData] = useState(true);
@@ -78,23 +82,62 @@ export default function NewTaskPage() {
   // --- INITIAL LOAD ---
   useEffect(() => {
     const loadData = async () => {
+      setFetchingData(true);
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
       setCurrentUser(user);
 
-      const [{ data: agData }, { data: prData }, { data: tgData }] = await Promise.all([
-        supabase.from("agents").select("id, name, email").order("name"),
-        supabase.from("projects").select("id, name").eq("status", "active").order("name"),
+      if (!activeCompany) {
+        setFetchingData(false);
+        return;
+      }
+
+      const isSuperAdmin = useUserStore.getState().isSuperAdmin;
+      const isGlobal = activeCompany.id === GLOBAL_COMPANY_ID;
+
+      // 1. Fetch Projects with RBAC — scoped to active company
+      let projectsQuery = supabase.from("projects").select("id, name").eq("status", "active").order("name");
+      
+      if (isGlobal) {
+        projectsQuery = projectsQuery.or(`company_id.eq.${GLOBAL_COMPANY_ID},company_id.is.null`);
+      } else {
+        projectsQuery = projectsQuery.eq("company_id", activeCompany.id);
+      }
+
+      if (!isSuperAdmin) {
+        const { data: memberData } = await supabase.from('project_members').select('project_id').eq('user_id', user.id);
+        const memberProjectIds = memberData?.map(m => m.project_id) || [];
+        
+        if (memberProjectIds.length > 0) {
+          projectsQuery = projectsQuery.or(`user_id.eq.${user.id},id.in.(${memberProjectIds.map(id => `"${id}"`).join(',')})`);
+        } else {
+          projectsQuery = projectsQuery.eq('user_id', user.id);
+        }
+      }
+
+      // 2. Fetch Agents — scoped to company members
+      const agentsQuery = supabase.from("company_members")
+        .select("agents(id, name, email)")
+        .eq("company_id", activeCompany.id)
+        .order('agents(name)');
+
+      const [{ data: cmData }, { data: prData }, { data: tgData }] = await Promise.all([
+        agentsQuery,
+        projectsQuery,
         supabase.from("tags").select("*").order("name")
       ]);
 
-      if (agData) setAgents(agData);
+      if (cmData) {
+        const extractedAgents = cmData.map((cm: any) => cm.agents).filter(Boolean);
+        setAgents(extractedAgents);
+      }
       if (prData) setProjects(prData);
       if (tgData) setAvailableTags(tgData);
 
       setFetchingData(false);
     };
     loadData();
-  }, []);
+  }, [activeCompany]);
 
   // --- MEDIA HANDLERS ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, targetId: string | null) => {
@@ -250,7 +293,7 @@ export default function NewTaskPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !currentUser) return;
+    if (!title.trim() || !projectId || !currentUser) return;
     setLoading(true);
 
     try {
@@ -671,11 +714,17 @@ export default function NewTaskPage() {
                 </div>
 
                 <div>
-                  <label className="flex items-center text-xs font-bold text-foreground/60 mb-1.5 uppercase tracking-wider"><FolderPlus className="w-3.5 h-3.5 mr-2" /> Project</label>
-                  <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full bg-input-bg border border-input-border focus:border-primary rounded-xl px-3 py-3 text-sm font-medium transition-all outline-none appearance-none cursor-pointer">
-                    <option value="">No Project</option>
+                  <label className="flex items-center text-xs font-bold text-foreground/60 mb-1.5 uppercase tracking-wider"><FolderPlus className="w-3.5 h-3.5 mr-2" /> Project <span className="text-red-500 ml-1 font-black">*</span></label>
+                  <select 
+                    required
+                    value={projectId} 
+                    onChange={(e) => setProjectId(e.target.value)} 
+                    className={`w-full bg-input-bg border rounded-xl px-3 py-3 text-sm font-medium transition-all outline-none appearance-none cursor-pointer ${!projectId ? 'border-red-500/50 focus:border-red-500' : 'border-input-border focus:border-primary'}`}
+                  >
+                    <option value="" disabled>Select a Project</option>
                     {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
+                  {!projectId && <p className="text-[10px] font-bold text-red-500/60 mt-1 uppercase tracking-widest ml-1">Mission must be assigned to a project</p>}
                 </div>
               </div>
 
@@ -735,7 +784,7 @@ export default function NewTaskPage() {
           {/* Action Footer */}
           <div className="pt-8 flex flex-col sm:flex-row gap-4 justify-end items-center relative z-20">
             <button type="button" onClick={() => router.back()} className="w-full sm:w-auto px-6 py-3.5 rounded-xl font-bold text-foreground/60 hover:text-foreground transition-colors">Cancel</button>
-            <button type="submit" disabled={loading || !title.trim()} className="w-full sm:w-auto px-10 py-3.5 rounded-xl font-bold text-white bg-primary hover:bg-primary-hover shadow-[0_0_20px_rgba(226,70,129,0.3)] hover:shadow-[0_0_30px_rgba(226,70,129,0.5)] disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center group">
+            <button type="submit" disabled={loading || !title.trim() || !projectId} className="w-full sm:w-auto px-10 py-3.5 rounded-xl font-bold text-white bg-primary hover:bg-primary-hover shadow-[0_0_20px_rgba(226,70,129,0.3)] hover:shadow-[0_0_30px_rgba(226,70,129,0.5)] disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center group">
               {loading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Plus className="w-5 h-5 mr-2 group-hover:scale-125 transition-transform" />}
               {loading ? 'Creating...' : 'Launch Task'}
             </button>

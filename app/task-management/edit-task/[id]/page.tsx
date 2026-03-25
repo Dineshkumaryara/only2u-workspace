@@ -9,6 +9,7 @@ import {
   ArrowLeft, Bell, Repeat, Tag as TagIcon, Plus, ChevronDown, CheckSquare,
   Paperclip, Mic, Square, Trash2, X, ChevronRight, FileText, Image as ImageIcon
 } from "lucide-react";
+import { useUserStore } from "@/stores/useUserStore";
 
 type Attachment = { file?: File; file_url?: string; file_name: string; file_type: string; previewUrl?: string; mimeType?: string; id?: string };
 
@@ -82,7 +83,23 @@ export default function EditTaskPage() {
     
     const loadData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
       setCurrentUser(user);
+
+      const isSuperAdmin = useUserStore.getState().isSuperAdmin;
+
+      // Fetch projects with RBAC
+      let projectsQuery = supabase.from("projects").select("id, name").eq("status", "active").order("name");
+      if (!isSuperAdmin) {
+        const { data: memberData } = await supabase.from('project_members').select('project_id').eq('user_id', user.id);
+        const memberProjectIds = memberData?.map(m => m.project_id) || [];
+        
+        if (memberProjectIds.length > 0) {
+          projectsQuery = projectsQuery.or(`user_id.eq.${user.id},id.in.(${memberProjectIds.map(id => `"${id}"`).join(',')})`);
+        } else {
+          projectsQuery = projectsQuery.eq('user_id', user.id);
+        }
+      }
 
       const [
         { data: agData }, 
@@ -94,7 +111,7 @@ export default function EditTaskPage() {
         { data: mainAttData }
       ] = await Promise.all([
         supabase.from("agents").select("id, name, email").order("name"),
-        supabase.from("projects").select("id, name").eq("status", "active").order("name"),
+        projectsQuery,
         supabase.from("tags").select("*").order("name"),
         supabase.from("tasks").select("*").eq("id", id).single(),
         supabase.from("task_assignments").select("agent_id").eq("task_id", id),
@@ -113,8 +130,8 @@ export default function EditTaskPage() {
           setParentTask(pData);
         }
 
-        // Only creator should edit
-        if (user?.id !== taskData.created_by) {
+        // Only creator or super admin should edit
+        if (!isSuperAdmin && user?.id !== taskData.created_by) {
           alert("You don't have permission to edit this task.");
           router.push(`/task-management/task/${id}`);
           return;

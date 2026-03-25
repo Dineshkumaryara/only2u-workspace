@@ -10,6 +10,9 @@ import Link from "next/link";
 import { format, differenceInDays, startOfDay, formatDistanceToNow } from "date-fns";
 
 import { TaskCard } from "@/components/TaskCard";
+import { useUserStore } from "@/stores/useUserStore";
+import { useCompanyStore } from "@/stores/useCompanyStore";
+import { GLOBAL_COMPANY_ID } from "@/stores/useProjectStore";
 
 export default function BoardPage() {
   const supabase = createClient();
@@ -32,28 +35,98 @@ export default function BoardPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<"board" | "grid" | "list">("board");
 
+  const { activeCompany } = useCompanyStore();
+
   useEffect(() => {
     const fetchData = async () => {
+      setLoading(true);
+      const isSuperAdmin = useUserStore.getState().isSuperAdmin;
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      // If no active company is selected, show empty board
+      if (!activeCompany) {
+        setTasks([]);
+        setProjects([]);
+        setLoading(false);
+        return;
+      }
+
+      const isGlobal = activeCompany.id === GLOBAL_COMPANY_ID;
+
+      // 1. Fetch Projects with RBAC — scoped to active company
+      // Global company also includes projects with NULL company_id
+      let projectsQuery = supabase.from("projects").select("*").eq("status", "active");
+
+      if (isGlobal) {
+        projectsQuery = projectsQuery.or(`company_id.eq.${GLOBAL_COMPANY_ID},company_id.is.null`);
+      } else {
+        projectsQuery = projectsQuery.eq("company_id", activeCompany.id);
+      }
+
+      if (!isSuperAdmin) {
+        const { data: memberData } = await supabase.from('project_members').select('project_id').eq('user_id', user.id);
+        const memberProjectIds = memberData?.map(m => m.project_id) || [];
+        
+        if (memberProjectIds.length > 0) {
+          projectsQuery = projectsQuery.or(`user_id.eq.${user.id},id.in.(${memberProjectIds.map(id => `"${id}"`).join(',')})`);
+        } else {
+          projectsQuery = projectsQuery.eq('user_id', user.id);
+        }
+      }
+
+      const { data: prData } = await projectsQuery;
+      const validProjectIds = prData?.map(p => p.id) || [];
+
+      // 2. Fetch Tasks — always scoped to the active company's projects
+      let tasksQuery = supabase.from("tasks")
+        .select("*, task_attachments(*), task_assignments(agent:agents(*))")
+        .order("created_at", { ascending: true });
+
+      if (validProjectIds.length > 0) {
+        // Scope to company projects
+        tasksQuery = tasksQuery.in('project_id', validProjectIds);
+      } else {
+        // No projects in this company — no tasks to show
+        setTasks([]);
+        setProjects([]);
+        setAgents([]);
+        setLoading(false);
+        return;
+      }
+
+      // For non-admins: further restrict to tasks they created or are assigned to
+      if (!isSuperAdmin) {
+        const { data: assignments } = await supabase
+          .from("task_assignments")
+          .select("task_id")
+          .eq("agent_id", user.id);
+        const assignedIds = assignments?.map(a => a.task_id) || [];
+
+        let orCond = `created_by.eq.${user.id}`;
+        if (assignedIds.length > 0) orCond += `,id.in.(${assignedIds.join(',')})`;
+        tasksQuery = tasksQuery.or(orCond);
+      }
+
       const [
         { data: tasksData }, 
-        { data: projectsData }, 
         { data: agentsData },
         { data: tagsData }
       ] = await Promise.all([
-        supabase.from("tasks").select("*, task_attachments(*), task_assignments(agent:agents(*))").order("created_at", { ascending: true }),
-        supabase.from("projects").select("*").eq("status", "active"),
+        tasksQuery,
         supabase.from("agents").select("*"),
         supabase.from("tags").select("*")
       ]);
 
       if (tasksData) setTasks(tasksData);
-      if (projectsData) setProjects(projectsData);
+      if (prData) setProjects(prData);
       if (agentsData) setAgents(agentsData);
       if (tagsData) setAvailableTags(tagsData);
       setLoading(false);
     };
     fetchData();
-  }, []);
+  }, [activeCompany]);
 
   // Filtering Logic
   const filteredTasks = useMemo(() => {
@@ -270,7 +343,7 @@ export default function BoardPage() {
 
       {/* Expanded Filters Modal */}
         {showFilters && (
-          <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowFilters(false)}>
+          <div className="fixed inset-0 z-100 flex justify-center items-center bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowFilters(false)}>
             <div className="bg-card-bg border border-card-border rounded-3xl w-full max-w-[1400px] max-h-[90vh] overflow-y-auto m-4 p-6 sm:p-10 custom-scrollbar shadow-2xl relative" onClick={e => e.stopPropagation()}>
               
               <div className="flex justify-between items-center mb-8">

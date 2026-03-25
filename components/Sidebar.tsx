@@ -10,30 +10,31 @@ import {
   Settings,
   ChevronLeft,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  ShieldCheck,
+  Users,
+  FolderPlus,
+  Building2
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { createClient } from "@/utils/supabase/client";
 import Image from "next/image";
 import { useSidebarStore } from "@/stores/useSidebarStore";
+import { useUserStore } from "@/stores/useUserStore";
+import CompanySwitcher from "@/components/CompanySwitcher";
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, setCollapsed, isMobileOpen, setMobileOpen } = useSidebarStore();
-  const [user, setUser] = useState<any>(null);
-  const supabase = createClient();
+  const { user, fetchUser, isSuperAdmin, signOut } = useUserStore();
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      setUser(u);
-    };
     fetchUser();
     
     // Check if collapsed preference is stored
     const stored = localStorage.getItem('sidebar-collapsed');
     if (stored === 'true') setCollapsed(true);
-  }, [setCollapsed, supabase.auth]);
+  }, [setCollapsed, fetchUser]);
 
   const toggleSidebar = () => {
     const newState = !isCollapsed;
@@ -47,20 +48,25 @@ export default function Sidebar() {
 
   const taskManagementItems = [
     { name: "My Tasks", icon: <ListTodo size={20} />, href: "/task-management" },
+    { name: "Projects", icon: <FolderPlus size={20} />, href: "/task-management/projects" },
     { name: "Project Board", icon: <Kanban size={20} />, href: "/task-management/board" },
     { name: "New Task", icon: <PlusCircle size={20} />, href: "/task-management/new-task" },
   ];
 
+  const adminItems = [
+    { name: "Companies", icon: <Building2 size={20} />, href: "/companies" },
+    { name: "Agent Management", icon: <Users size={20} />, href: "/agents" },
+    { name: "Role Management", icon: <ShieldCheck size={20} />, href: "/roles" },
+  ];
+
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/login';
+    await signOut();
   };
 
   const isActive = (path: string) => {
     if (path === '/') return pathname === '/';
-    // Exact match or sub-path but not a sibling (e.g. /task-management matches /task-management/123 but not /task-management/board)
     if (path === '/task-management') {
-      return pathname === '/task-management' || (pathname.startsWith('/task-management/') && !pathname.startsWith('/task-management/board') && !pathname.startsWith('/task-management/new-task'));
+      return pathname === '/task-management' || (pathname.startsWith('/task-management/') && !pathname.startsWith('/task-management/board') && !pathname.startsWith('/task-management/new-task') && !pathname.startsWith('/task-management/projects'));
     }
     return pathname === path || pathname.startsWith(path + '/');
   };
@@ -119,7 +125,10 @@ export default function Sidebar() {
 
           {/* Navigation Content */}
           <div className="flex-1 overflow-y-auto px-4 py-2 custom-scrollbar-thin scroll-smooth">
-            
+
+            {/* Company Switcher */}
+            <CompanySwitcher />
+
             <div className="space-y-1.5 mb-8">
               {dashboardItems.map((item) => (
                 <Link 
@@ -167,6 +176,36 @@ export default function Sidebar() {
                 </Link>
               ))}
             </div>
+
+            {isSuperAdmin && (
+              <div className="space-y-1.5 border-t border-card-border/50 pt-5 mt-2 transition-all animate-in fade-in duration-500">
+                {(!isCollapsed || isMobileOpen) && (
+                  <p className="text-[10px] font-black text-primary/40 uppercase tracking-[0.25em] ml-4 mb-4 select-none flex items-center gap-2">
+                    <ShieldCheck size={10} /> Management
+                  </p>
+                )}
+                
+                {adminItems.map((item) => (
+                  <Link 
+                    key={item.name} 
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={`relative flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all group/item font-bold text-sm ${isActive(item.href) ? 'bg-primary text-white shadow-xl shadow-primary/25' : 'text-foreground/50 hover:bg-primary/5 hover:text-primary'}`}
+                  >
+                    <div className={`transition-transform duration-300 group-hover/item:scale-110 ${isCollapsed ? 'lg:mx-auto' : ''}`}>
+                      {item.icon}
+                    </div>
+                    {(!isCollapsed || isMobileOpen) && <span className="animate-in fade-in slide-in-from-left-2 duration-300">{item.name}</span>}
+                    
+                    {isCollapsed && !isMobileOpen && (
+                      <div className="absolute left-full ml-6 px-3 py-2 bg-foreground text-background text-xs font-bold rounded-xl opacity-0 translate-x-[-10px] group-hover/item:opacity-100 group-hover/item:translate-x-0 transition-all pointer-events-none whitespace-nowrap z-110 shadow-2xl">
+                        {item.name}
+                      </div>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Bottom Section - User Profile */}
